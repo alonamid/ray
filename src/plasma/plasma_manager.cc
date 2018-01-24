@@ -19,6 +19,7 @@
 #include <poll.h>
 #include <assert.h>
 #include <netinet/in.h>
+#include <dlfcn.h>
 
 /* C++ includes. */
 #include <list>
@@ -1607,6 +1608,14 @@ void start_server(const char *store_socket_name,
 
 /* Report "success" to valgrind. */
 void signal_handler(int signal) {
+
+  printf("plasma manager signal handler called\n");
+  void (*_mcleanup)(void);
+  _mcleanup = (void (*)(void))dlsym(RTLD_DEFAULT, "_mcleanup");
+  if (_mcleanup == NULL)
+       fprintf(stderr, "Unable to find gprof exit hook\n");
+  else _mcleanup();
+
   LOG_DEBUG("Signal was %d", signal);
   if (signal == SIGTERM) {
     if (g_manager_state) {

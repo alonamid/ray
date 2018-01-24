@@ -5,6 +5,7 @@
 #include <sys/un.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <dlfcn.h>
 
 #include "common.h"
 #include "common_protocol.h"
@@ -1093,6 +1094,15 @@ void new_client_connection(event_loop *loop,
 LocalSchedulerState *g_state = NULL;
 
 void signal_handler(int signal) {
+
+  printf("local sched signal handler called\n");
+
+  void (*_mcleanup)(void);
+  _mcleanup = (void (*)(void))dlsym(RTLD_DEFAULT, "_mcleanup");
+  if (_mcleanup == NULL)
+       fprintf(stderr, "Unable to find gprof exit hook\n");
+  else _mcleanup();
+
   LOG_DEBUG("Signal was %d", signal);
   if (signal == SIGTERM) {
     /* NOTE(swang): This call removes the SIGTERM handler to ensure that we

@@ -1,6 +1,7 @@
 #include <getopt.h>
 #include <signal.h>
 #include <stdlib.h>
+#include <dlfcn.h>
 
 #include "common.h"
 #include "event_loop.h"
@@ -161,6 +162,14 @@ void GlobalSchedulerState_free(GlobalSchedulerState *state) {
 GlobalSchedulerState *g_state;
 
 void signal_handler(int signal) {
+
+  printf("global sched signal handler called\n");
+  void (*_mcleanup)(void);
+  _mcleanup = (void (*)(void))dlsym(RTLD_DEFAULT, "_mcleanup");
+  if (_mcleanup == NULL)
+       fprintf(stderr, "Unable to find gprof exit hook\n");
+  else _mcleanup();
+
   if (signal == SIGTERM) {
     GlobalSchedulerState_free(g_state);
     exit(0);
