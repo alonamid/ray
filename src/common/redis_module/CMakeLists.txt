@@ -15,3 +15,4 @@ add_library(ray_redis_module SHARED ray_redis_module.cc)
 
 target_compile_options(ray_redis_module PUBLIC ${REDIS_MODULE_CFLAGS} -fPIC)
 target_link_libraries(ray_redis_module ${REDIS_MODULE_LDFLAGS})
+install(TARGETS ray_redis_module DESTINATION ${CMAKE_INSTALL_LIBDIR}/ray/core/src/common/redis_module/)
