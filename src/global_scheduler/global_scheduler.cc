@@ -1,6 +1,9 @@
 #include <getopt.h>
 #include <signal.h>
 #include <stdlib.h>
+#include <time.h>
+#include <unistd.h>
+#include <dlfcn.h>
 
 #include "common.h"
 #include "event_loop.h"
@@ -12,6 +15,13 @@
 #include "state/object_table.h"
 #include "state/table.h"
 #include "state/task_table.h"
+
+#define FIRESIM_BUF_SIZE 100000
+uint64_t* firesim_profile_buffer1;
+uint64_t* firesim_profile_buffer_start1;
+char* firesim_profile_taskid_buffer1;
+char* firesim_profile_taskid_buffer_start1;
+
 
 /**
  * Retry the task assignment. If the local scheduler that the task is assigned
@@ -64,8 +74,25 @@ void assign_task_to_local_scheduler_retry(UniqueID id,
 void assign_task_to_local_scheduler(GlobalSchedulerState *state,
                                     Task *task,
                                     DBClientID local_scheduler_id) {
+
+  //get the cycle count
+  //store the cycle count in the buffer
+  //increase the buffer pointer by a word
+  uint64_t firesim_rdcycle;
+  asm volatile ("rdcycle %0 \n\t" :"=r"(firesim_rdcycle):);
+  *firesim_profile_buffer1 = firesim_rdcycle;
+  firesim_profile_buffer1 = firesim_profile_buffer1 + 1;
+  //TaskSpec_task_id(spec); //task id is 20 bytes
+  ///////////////////////////////////////////////////
+
   char id_string[ID_STRING_SIZE];
   TaskSpec *spec = Task_task_spec(task);
+
+  //profiling
+  memcpy(firesim_profile_taskid_buffer1, reinterpret_cast<const char *>(TaskSpec_task_id(spec).id), 20);
+  firesim_profile_taskid_buffer1 += 20;  
+  /////////
+
   LOG_DEBUG("assigning task to local_scheduler_id = %s",
             ObjectID_to_string(local_scheduler_id, id_string, ID_STRING_SIZE));
   Task_set_state(task, TASK_STATUS_SCHEDULED);
@@ -161,6 +188,46 @@ void GlobalSchedulerState_free(GlobalSchedulerState *state) {
 GlobalSchedulerState *g_state;
 
 void signal_handler(int signal) {
+//==================Firesim Profiling=====================================
+  time_t rawtime;
+  char buffer [255];
+
+  rawtime = time (NULL);
+  sprintf(buffer,"/home/assign_task_to_local_scheduler.prof.%d",(uintmax_t)rawtime );
+
+  FILE* prof_f1 = fopen(buffer, "w+");
+  if (prof_f1 == NULL)
+  {
+    printf("Error opening prof_f1 file!\n");
+    exit(1);
+  }
+
+  char* firesim_taskid_printer = firesim_profile_taskid_buffer_start1;
+  for (int i=0; i<FIRESIM_BUF_SIZE; i++)
+  {
+    if (firesim_profile_buffer_start1[i] == 0) break;
+    fprintf(prof_f1, "%016lld,",firesim_profile_buffer_start1[i]);
+    for (int j=0; j<20; j++)
+    {
+      fprintf(prof_f1,"%02x", *firesim_taskid_printer);
+      firesim_taskid_printer++;
+    }
+    fprintf(prof_f1,"\n");
+  }
+  fclose(prof_f1);
+  free(firesim_profile_buffer_start1);
+  free(firesim_profile_taskid_buffer_start1);
+
+  //gprof
+  void (*_mcleanup)(void);
+  _mcleanup = (void (*)(void))dlsym(RTLD_DEFAULT, "_mcleanup");
+  if (_mcleanup == NULL)
+       fprintf(stderr, "Unable to find gprof exit hook\n");
+  //else _mcleanup();
+
+
+//===========================================================================
+
   if (signal == SIGTERM) {
     GlobalSchedulerState_free(g_state);
     exit(0);
@@ -444,6 +511,10 @@ void start_server(const char *node_ip_address,
 }
 
 int main(int argc, char *argv[]) {
+  firesim_profile_buffer_start1 = (uint64_t*)calloc(FIRESIM_BUF_SIZE,sizeof(uint64_t));
+  firesim_profile_buffer1 = firesim_profile_buffer_start1;
+  firesim_profile_taskid_buffer_start1 = (char*)calloc(FIRESIM_BUF_SIZE,20*sizeof(char));
+  firesim_profile_taskid_buffer1 = firesim_profile_taskid_buffer_start1;
   signal(SIGTERM, signal_handler);
   /* IP address and port of the primary redis instance. */
   char *redis_primary_addr_port = NULL;

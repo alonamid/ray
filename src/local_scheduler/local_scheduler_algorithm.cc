@@ -691,6 +691,16 @@ bool resources_available(LocalSchedulerState *state) {
  */
 void dispatch_tasks(LocalSchedulerState *state,
                     SchedulingAlgorithmState *algorithm_state) {
+
+/*
+   uint64_t firesim_rdcycle;
+   asm volatile ("rdcycle %0 \n\t" :"=r"(firesim_rdcycle):);
+
+
+   *firesim_profile_buffer1 = firesim_rdcycle;
+   firesim_profile_buffer1 = firesim_profile_buffer1 + 1;
+*/ 
+
   /* Assign as many tasks as we can, while there are workers available. */
   for (auto it = algorithm_state->dispatch_task_queue->begin();
        it != algorithm_state->dispatch_task_queue->end();) {

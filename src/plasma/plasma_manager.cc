@@ -19,6 +19,8 @@
 #include <poll.h>
 #include <assert.h>
 #include <netinet/in.h>
+#include <time.h>
+#include <dlfcn.h>
 
 /* C++ includes. */
 #include <list>
@@ -42,6 +44,26 @@
 #include "state/error_table.h"
 #include "state/task_table.h"
 #include "state/db_client_table.h"
+
+#define FIRESIM_BUF_SIZE 100000
+
+uint64_t* firesim_profile_buffer1;
+uint64_t* firesim_profile_buffer_start1;
+char* firesim_profile_taskid_buffer1;
+char* firesim_profile_taskid_buffer_start1;
+uint64_t* firesim_profile_buffer2;
+uint64_t* firesim_profile_buffer_start2;
+char* firesim_profile_taskid_buffer2;
+char* firesim_profile_taskid_buffer_start2;
+uint64_t* firesim_profile_buffer3;
+uint64_t* firesim_profile_buffer_start3;
+char* firesim_profile_taskid_buffer3;
+char* firesim_profile_taskid_buffer_start3;
+//uint64_t* firesim_profile_buffer4;
+//uint64_t* firesim_profile_buffer_start4;
+//char* firesim_profile_taskid_buffer4;
+//char* firesim_profile_taskid_buffer_start4;
+
 
 int handle_sigpipe(Status s, int fd) {
   if (s.ok()) {
@@ -628,6 +650,15 @@ void send_queued_request(event_loop *loop,
   int err = 0;
   switch (buf->type) {
   case MessageType_PlasmaDataRequest:
+
+    uint64_t firesim_rdcycle;
+    asm volatile ("rdcycle %0 \n\t" :"=r"(firesim_rdcycle):);
+    *firesim_profile_buffer3 = firesim_rdcycle;
+    firesim_profile_buffer3 = firesim_profile_buffer3 + 1;
+
+    memcpy(firesim_profile_taskid_buffer3, reinterpret_cast<const char *>(buf->object_id.id), 20);
+    firesim_profile_taskid_buffer3 += 20;
+
     err = handle_sigpipe(
         plasma::SendDataRequest(conn->fd, buf->object_id.to_plasma_id(),
                                 state->addr, state->port),
@@ -709,6 +740,16 @@ void process_data_chunk(event_loop *loop,
                         int data_sock,
                         void *context,
                         int events) {
+
+  //get the cycle count
+  //store the cycle count in the buffer
+  //increase the buffer pointer by a word
+  uint64_t firesim_rdcycle;
+  asm volatile ("rdcycle %0 \n\t" :"=r"(firesim_rdcycle):);
+  *firesim_profile_buffer1 = firesim_rdcycle;
+  firesim_profile_buffer1 = firesim_profile_buffer1 + 1;
+
+
   /* Read the object chunk. */
   ClientConnection *conn = (ClientConnection *) context;
   PlasmaRequestBuffer *buf = conn->transfer_queue.front();
@@ -716,6 +757,10 @@ void process_data_chunk(event_loop *loop,
   if (!done) {
     return;
   }
+
+  memcpy(firesim_profile_taskid_buffer1, reinterpret_cast<const char *>(buf->object_id.id), 20);
+  firesim_profile_taskid_buffer1 += 20;
+
 
   /* Seal the object and release it. The release corresponds to the call to
    * plasma_create that occurred in process_data_request. */
@@ -861,6 +906,15 @@ void process_data_request(event_loop *loop,
   buf->object_id = object_id;
   buf->data_size = data_size;
   buf->metadata_size = metadata_size;
+
+
+  uint64_t firesim_rdcycle;
+  asm volatile ("rdcycle %0 \n\t" :"=r"(firesim_rdcycle):);
+  *firesim_profile_buffer2 = firesim_rdcycle;
+  firesim_profile_buffer2 = firesim_profile_buffer2 + 1;
+
+  memcpy(firesim_profile_taskid_buffer2, reinterpret_cast<const char *>(buf->object_id.id), 20);
+  firesim_profile_taskid_buffer2 += 20;
 
   /* The corresponding call to plasma_release should happen in
    * process_data_chunk. */
@@ -1607,6 +1661,131 @@ void start_server(const char *store_socket_name,
 
 /* Report "success" to valgrind. */
 void signal_handler(int signal) {
+  //======================Firesim porfiling=========================
+  time_t rawtime;
+  char buffer [255];
+
+  rawtime = time (NULL);
+  sprintf(buffer,"/home/plasma_process_data_chunk.prof.%d",(uintmax_t)rawtime );
+
+  FILE* prof_f1 = fopen(buffer, "w+");
+  if (prof_f1 == NULL)
+  {
+    printf("Error opening prof_f1 file!\n");
+    exit(1);
+  }
+
+  char* firesim_taskid_printer = firesim_profile_taskid_buffer_start1;
+  for (int i=0; i<FIRESIM_BUF_SIZE; i++)
+  {
+    if (firesim_profile_buffer_start1[i] == 0) break;
+    fprintf(prof_f1, "%016lld,",firesim_profile_buffer_start1[i]);
+    for (int j=0; j<20; j++)
+    {
+      fprintf(prof_f1,"%02x", *firesim_taskid_printer);
+      firesim_taskid_printer++;
+    }
+    fprintf(prof_f1,"\n");
+  }
+
+  fclose(prof_f1);
+  free(firesim_profile_buffer_start1);
+  free(firesim_profile_taskid_buffer_start1);
+
+
+  sprintf(buffer,"/home/plasma_process_data_request.prof.%d",(uintmax_t)rawtime );
+
+  FILE* prof_f2 = fopen(buffer, "w+");
+  if (prof_f2 == NULL)
+  {
+    printf("Error opening prof_f2 file!\n");
+    exit(1);
+  }
+
+  firesim_taskid_printer = firesim_profile_taskid_buffer_start2;
+  for (int i=0; i<FIRESIM_BUF_SIZE; i++)
+  {
+    if (firesim_profile_buffer_start2[i] == 0) break;
+    fprintf(prof_f2, "%016lld,",firesim_profile_buffer_start2[i]);
+    for (int j=0; j<20; j++)
+    {
+      fprintf(prof_f2,"%02x", *firesim_taskid_printer);
+      firesim_taskid_printer++;
+    }
+    fprintf(prof_f2,"\n");
+  }
+
+  fclose(prof_f2);
+  free(firesim_profile_buffer_start2);
+  free(firesim_profile_taskid_buffer_start2);
+
+
+  sprintf(buffer,"/home/plasma_send_queued_request_PlasmaDataRequest.prof.%d",(uintmax_t)rawtime );
+
+  FILE* prof_f3 = fopen(buffer, "w+");
+  if (prof_f3 == NULL)
+  {
+    printf("Error opening prof_f3 file!\n");
+    exit(1);
+  }
+
+  firesim_taskid_printer = firesim_profile_taskid_buffer_start3;
+  for (int i=0; i<FIRESIM_BUF_SIZE; i++)
+  {
+    if (firesim_profile_buffer_start3[i] == 0) break;
+    fprintf(prof_f3, "%016lld,",firesim_profile_buffer_start3[i]);
+    for (int j=0; j<20; j++)
+    {
+      fprintf(prof_f3,"%02x", *firesim_taskid_printer);
+      firesim_taskid_printer++;
+    }
+    fprintf(prof_f3,"\n");
+  }
+
+  fclose(prof_f3);
+  free(firesim_profile_buffer_start3);
+  free(firesim_profile_taskid_buffer_start3);
+
+/*
+  sprintf(buffer,"/home/plasma_process_data_chunk.prof.%d",(uintmax_t)rawtime );
+
+  FILE* prof_f4 = fopen(buffer, "w+");
+  if (prof_f4 == NULL)
+  {
+    printf("Error opening prof_f4 file!\n");
+    exit(1);
+  }
+
+  firesim_taskid_printer = firesim_profile_taskid_buffer_start4;
+  for (int i=0; i<FIRESIM_BUF_SIZE; i++)
+  {
+    if (firesim_profile_buffer_start4[i] == 0) break;
+    fprintf(prof_f4, "%016lld,",firesim_profile_buffer_start4[i]);
+    for (int j=0; j<20; j++)
+    {
+      fprintf(prof_f4,"%02x", *firesim_taskid_printer);
+      firesim_taskid_printer++;
+    }
+    fprintf(prof_f4,"\n");
+  }
+
+  fclose(prof_f4);
+  free(firesim_profile_buffer_start4);
+  free(firesim_profile_taskid_buffer_start4);
+*/
+
+  //gprof
+  void (*_mcleanup)(void);
+  _mcleanup = (void (*)(void))dlsym(RTLD_DEFAULT, "_mcleanup");
+  if (_mcleanup == NULL)
+       fprintf(stderr, "Unable to find gprof exit hook\n");
+  //else _mcleanup();
+
+
+
+  //=================================================================
+
+
   LOG_DEBUG("Signal was %d", signal);
   if (signal == SIGTERM) {
     if (g_manager_state) {
@@ -1620,6 +1799,26 @@ void signal_handler(int signal) {
  * suite has its own declaration of main. */
 #ifndef PLASMA_TEST
 int main(int argc, char *argv[]) {
+  firesim_profile_buffer_start1 = (uint64_t*)calloc(FIRESIM_BUF_SIZE,sizeof(uint64_t));
+  firesim_profile_buffer1 = firesim_profile_buffer_start1;
+  firesim_profile_taskid_buffer_start1 = (char*)calloc(FIRESIM_BUF_SIZE,20*sizeof(char));
+  firesim_profile_taskid_buffer1 = firesim_profile_taskid_buffer_start1;
+
+  firesim_profile_buffer_start2 = (uint64_t*)calloc(FIRESIM_BUF_SIZE,sizeof(uint64_t));
+  firesim_profile_buffer2 = firesim_profile_buffer_start2;
+  firesim_profile_taskid_buffer_start2 = (char*)calloc(FIRESIM_BUF_SIZE,20*sizeof(char));
+  firesim_profile_taskid_buffer2 = firesim_profile_taskid_buffer_start2;
+
+  firesim_profile_buffer_start3 = (uint64_t*)calloc(FIRESIM_BUF_SIZE,sizeof(uint64_t));
+  firesim_profile_buffer3 = firesim_profile_buffer_start3;
+  firesim_profile_taskid_buffer_start3 = (char*)calloc(FIRESIM_BUF_SIZE,20*sizeof(char));
+  firesim_profile_taskid_buffer3 = firesim_profile_taskid_buffer_start3;
+
+  //firesim_profile_buffer_start4 = (uint64_t*)calloc(FIRESIM_BUF_SIZE,sizeof(uint64_t));
+  //firesim_profile_buffer4 = firesim_profile_buffer_start4;
+  //firesim_profile_taskid_buffer_start4 = (char*)aligned_alloc(FIRESIM_BUF_SIZE,20*sizeof(char));
+  //firesim_profile_taskid_buffer4 = firesim_profile_taskid_buffer_start4;
+
   signal(SIGTERM, signal_handler);
   /* Socket name of the plasma store this manager is connected to. */
   char *store_socket_name = NULL;

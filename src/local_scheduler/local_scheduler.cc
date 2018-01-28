@@ -5,6 +5,8 @@
 #include <sys/un.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <time.h>
+#include <dlfcn.h>
 
 #include "common.h"
 #include "common_protocol.h"
@@ -22,6 +24,21 @@
 #include "state/task_table.h"
 #include "state/object_table.h"
 #include "state/error_table.h"
+
+#define FIRESIM_BUF_SIZE 100000
+
+uint64_t* firesim_profile_buffer1;
+uint64_t* firesim_profile_buffer_start1;
+char* firesim_profile_taskid_buffer1;
+char* firesim_profile_taskid_buffer_start1;
+uint64_t* firesim_profile_buffer11;
+uint64_t* firesim_profile_buffer_start11;
+char* firesim_profile_taskid_buffer11;
+char* firesim_profile_taskid_buffer_start11;
+//uint64_t* firesim_profile_buffer12;
+//uint64_t* firesim_profile_buffer_start12;
+//char* firesim_profile_taskid_buffer12;
+//char* firesim_profile_taskid_buffer_start12;
 
 /**
  * A helper function for printing available and requested resource information.
@@ -516,6 +533,16 @@ void assign_task_to_worker(LocalSchedulerState *state,
                            TaskSpec *spec,
                            int64_t task_spec_size,
                            LocalSchedulerClient *worker) {
+
+  uint64_t firesim_rdcycle;
+  asm volatile ("rdcycle %0 \n\t" :"=r"(firesim_rdcycle):);
+  *firesim_profile_buffer1 = firesim_rdcycle;
+  firesim_profile_buffer1 = firesim_profile_buffer1 + 1;
+
+  memcpy(firesim_profile_taskid_buffer1, reinterpret_cast<const char *>(TaskSpec_task_id(spec).id), 20);
+  firesim_profile_taskid_buffer1 += 20;
+
+
   /* Acquire the necessary resources for running this task. */
   acquire_resources(
       state, worker, TaskSpec_get_required_resource(spec, ResourceIndex_CPU),
@@ -570,6 +597,15 @@ void assign_task_to_worker(LocalSchedulerState *state,
 void finish_task(LocalSchedulerState *state, LocalSchedulerClient *worker) {
   if (worker->task_in_progress != NULL) {
     TaskSpec *spec = Task_task_spec(worker->task_in_progress);
+
+    uint64_t firesim_rdcycle;
+    asm volatile ("rdcycle %0 \n\t" :"=r"(firesim_rdcycle):);
+    *firesim_profile_buffer11 = firesim_rdcycle;
+    firesim_profile_buffer11 = firesim_profile_buffer11 + 1;
+
+    memcpy(firesim_profile_taskid_buffer11, reinterpret_cast<const char *>(TaskSpec_task_id(spec).id), 20);
+    firesim_profile_taskid_buffer11 += 20;
+
     /* Return dynamic resources back for the task in progress. */
     CHECK(worker->resources_in_use[ResourceIndex_CPU] ==
           TaskSpec_get_required_resource(spec, ResourceIndex_CPU));
@@ -1093,6 +1129,104 @@ void new_client_connection(event_loop *loop,
 LocalSchedulerState *g_state = NULL;
 
 void signal_handler(int signal) {
+
+  //==========================================================
+  //===================Alon's Profiling Code===================
+  //==========================================================
+  time_t rawtime;
+  char buffer [255];
+
+  rawtime = time (NULL);
+  sprintf(buffer,"/home/local_scheduler_dispatch_tasks.prof.%d",(uintmax_t)rawtime );
+
+  FILE* prof_f = fopen(buffer, "w+");
+  if (prof_f == NULL)
+  {
+    printf("Error opening prof_f file!\n");
+    exit(1);
+  }
+
+  char* firesim_taskid_printer = firesim_profile_taskid_buffer_start1;
+  for (int i=0; i<FIRESIM_BUF_SIZE; i++)
+  {
+    if (firesim_profile_buffer_start1[i] == 0) break;
+    fprintf(prof_f, "%016lld,",firesim_profile_buffer_start1[i]);
+    for (int j=0; j<20; j++)
+    {
+      fprintf(prof_f,"%02x", *firesim_taskid_printer);
+      firesim_taskid_printer++;
+    }
+    fprintf(prof_f,"\n");
+  }
+
+  fclose(prof_f);
+  free(firesim_profile_buffer_start1);
+  free(firesim_profile_taskid_buffer_start1);
+
+
+  sprintf(buffer,"/home/local_scheduler_finish_task.prof.%d",(uintmax_t)rawtime );
+
+  FILE* prof_f1 = fopen(buffer, "w+");
+  if (prof_f1 == NULL)
+  {
+    printf("Error opening prof_f1 file!\n");
+    exit(1);
+  }
+
+  firesim_taskid_printer = firesim_profile_taskid_buffer_start11;
+  for (int i=0; i<FIRESIM_BUF_SIZE; i++)
+  {
+    if (firesim_profile_buffer_start11[i] == 0) break;
+    fprintf(prof_f1, "%016lld,",firesim_profile_buffer_start11[i]);
+    for (int j=0; j<20; j++)
+    {
+      fprintf(prof_f1,"%02x", *firesim_taskid_printer);
+      firesim_taskid_printer++;
+    }
+    fprintf(prof_f1,"\n");
+  }
+
+  fclose(prof_f1);
+  free(firesim_profile_buffer_start11);
+  free(firesim_profile_taskid_buffer_start11);
+
+/*
+  sprintf(buffer,"/home/local_scheduler_dispatch_tasks.prof.%d",(uintmax_t)rawtime );
+
+  FILE* prof_f2 = fopen(buffer, "w+");
+  if (prof_f2 == NULL)
+  {
+    printf("Error opening prof_f2 file!\n");
+    exit(1);
+  }
+
+  char* firesim_taskid_printer = firesim_profile_taskid_buffer_start12;
+  for (int i=0; i<FIRESIM_BUF_SIZE; i++)
+  {
+    if (firesim_profile_buffer_start12[i] == 0) break;
+    fprintf(prof_f2, "%016lld,",firesim_profile_buffer_start12[i]);
+    for (int j=0; j<20; j++)
+    {
+      fprintf(prof_f2,"%02x", *firesim_taskid_printer);
+      firesim_taskid_printer++;
+    }
+    fprintf(prof_f2,"\n");
+  }
+
+  fclose(prof_f2);
+  free(firesim_profile_buffer_start12);
+  free(firesim_profile_taskid_buffer_start12);
+*/
+
+  void (*_mcleanup)(void);
+  _mcleanup = (void (*)(void))dlsym(RTLD_DEFAULT, "_mcleanup");
+  if (_mcleanup == NULL)
+       fprintf(stderr, "Unable to find gprof exit hook\n");
+  else _mcleanup();
+
+  //==========================================================
+  //==========================================================
+
   LOG_DEBUG("Signal was %d", signal);
   if (signal == SIGTERM) {
     /* NOTE(swang): This call removes the SIGTERM handler to ensure that we
@@ -1292,6 +1426,18 @@ void start_server(const char *node_ip_address,
  * suite has its own declaration of main. */
 #ifndef LOCAL_SCHEDULER_TEST
 int main(int argc, char *argv[]) {
+  firesim_profile_buffer_start1 = (uint64_t*)calloc(FIRESIM_BUF_SIZE,sizeof(uint64_t));
+  firesim_profile_buffer1 = firesim_profile_buffer_start1;
+  firesim_profile_taskid_buffer_start1 = (char*)calloc(FIRESIM_BUF_SIZE,20*sizeof(char));
+  firesim_profile_taskid_buffer1 = firesim_profile_taskid_buffer_start1;
+  firesim_profile_buffer_start11 = (uint64_t*)calloc(FIRESIM_BUF_SIZE,sizeof(uint64_t));
+  firesim_profile_buffer11 = firesim_profile_buffer_start11;
+  firesim_profile_taskid_buffer_start11 = (char*)calloc(FIRESIM_BUF_SIZE,20*sizeof(char));
+  firesim_profile_taskid_buffer11 = firesim_profile_taskid_buffer_start11;
+  //firesim_profile_buffer_start12 = (uint64_t*)calloc(FIRESIM_BUF_SIZE,sizeof(uint64_t));
+  //firesim_profile_buffer12 = firesim_profile_buffer_start12;
+  //firesim_profile_taskid_buffer_start12 = (char*)calloc(FIRESIM_BUF_SIZE,20*sizeof(char));
+  //firesim_profile_taskid_buffer12 = firesim_profile_taskid_buffer_start12;
   signal(SIGTERM, signal_handler);
   /* Path of the listening socket of the local scheduler. */
   char *scheduler_socket_name = NULL;

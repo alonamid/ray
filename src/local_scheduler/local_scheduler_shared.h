@@ -130,4 +130,7 @@ struct LocalSchedulerClient {
  */
 void LocalSchedulerState_free(LocalSchedulerState *state);
 
+
+extern uint64_t* firesim_profile_buffer1;
+
 #endif /* LOCAL_SCHEDULER_SHARED_H */

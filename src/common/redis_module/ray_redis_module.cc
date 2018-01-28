@@ -1,5 +1,9 @@
 #include "redismodule.h"
 #include <string.h>
+#include <time.h>
+#include <stdlib.h>
+#include <sys/types.h>
+#include <unistd.h>
 
 #include "redis_string.h"
 
@@ -47,6 +51,18 @@
   if ((STATUS) == REDISMODULE_ERR) {                   \
     return RedisModule_ReplyWithError(ctx, (MESSAGE)); \
   }
+
+#include "signal.h"
+#define FIRESIM_BUF_SIZE 100000
+uint64_t* firesim_profile_buffer1;
+uint64_t* firesim_profile_buffer2;
+uint64_t* firesim_profile_buffer_start1;
+uint64_t* firesim_profile_buffer_start2;
+char* firesim_profile_taskid_buffer1;
+char* firesim_profile_taskid_buffer_start1;
+char* firesim_profile_objectid_buffer2;
+char* firesim_profile_objectid_buffer_start2;
+
 
 RedisModuleKey *OpenPrefixedKey(RedisModuleCtx *ctx,
                                 const char *prefix,
@@ -454,6 +470,13 @@ bool PublishObjectNotification(RedisModuleCtx *ctx,
 int ObjectTableAdd_RedisCommand(RedisModuleCtx *ctx,
                                 RedisModuleString **argv,
                                 int argc) {
+
+  uint64_t firesim_rdcycle;
+  asm volatile ("rdcycle %0 \n\t" :"=r"(firesim_rdcycle):);
+  *firesim_profile_buffer2 = firesim_rdcycle;
+  firesim_profile_buffer2 = firesim_profile_buffer2 + 1;
+
+
   if (argc != 5) {
     return RedisModule_WrongArity(ctx);
   }
@@ -462,6 +485,12 @@ int ObjectTableAdd_RedisCommand(RedisModuleCtx *ctx,
   RedisModuleString *data_size = argv[2];
   RedisModuleString *new_hash = argv[3];
   RedisModuleString *manager = argv[4];
+
+  //profiling
+  size_t *l;
+  memcpy(firesim_profile_objectid_buffer2, RedisModule_StringPtrLen(object_id, l), 20);
+  firesim_profile_objectid_buffer2 += 20;
+  /////////
 
   long long data_size_value;
   if (RedisModule_StringToLongLong(data_size, &data_size_value) !=
@@ -1014,9 +1043,22 @@ int TaskTableWrite(RedisModuleCtx *ctx,
 int TaskTableAddTask_RedisCommand(RedisModuleCtx *ctx,
                                   RedisModuleString **argv,
                                   int argc) {
+
+  uint64_t firesim_rdcycle;
+  asm volatile ("rdcycle %0 \n\t" :"=r"(firesim_rdcycle):);
+  *firesim_profile_buffer1 = firesim_rdcycle;
+  firesim_profile_buffer1 = firesim_profile_buffer1 + 1;
+
+
   if (argc != 5) {
     return RedisModule_WrongArity(ctx);
   }
+
+  //profiling
+  size_t *l;
+  memcpy(firesim_profile_taskid_buffer1, RedisModule_StringPtrLen(argv[1], l), 20);
+  firesim_profile_taskid_buffer1 += 20;
+  /////////
 
   return TaskTableWrite(ctx, argv[1], argv[2], argv[3], argv[4]);
 }
@@ -1143,7 +1185,94 @@ int TaskTableGet_RedisCommand(RedisModuleCtx *ctx,
   return ReplyWithTask(ctx, argv[1], false);
 }
 
+
 extern "C" {
+
+void signal_handler(int signal) {
+
+  //==========================================================
+  //===================Alon's Profiling Code===================
+  //==========================================================
+  time_t rawtime;
+  char buffer [255];
+
+  srand( (unsigned) time(NULL) * getpid() );
+  int r = rand();
+
+  rawtime = time (NULL);
+  sprintf(buffer,"/home/ray_redis_module_TaskTableAddTask.prof.%d.%d",(uintmax_t)rawtime,r );
+
+  FILE* prof_f1 = fopen(buffer, "w+");
+  if (prof_f1 == NULL)
+  {
+      printf("Error opening prof_f1 file!\n");
+      exit(1);
+  }
+ 
+
+  char* firesim_taskid_printer = firesim_profile_taskid_buffer_start1;
+  for (int i=0; i<FIRESIM_BUF_SIZE; i++)
+  {
+    if (firesim_profile_buffer_start1[i] == 0) break;
+    fprintf(prof_f1, "%016lld,",firesim_profile_buffer_start1[i]);
+    for (int j=0; j<20; j++)
+    {
+      fprintf(prof_f1,"%02x", *firesim_taskid_printer);
+      firesim_taskid_printer++;
+    }
+    fprintf(prof_f1,"\n");
+  }
+  fclose(prof_f1);
+  free(firesim_profile_buffer_start1);
+  free(firesim_profile_taskid_buffer_start1);
+
+  sprintf(buffer,"/home/ray_redis_module_ObjectTableAdd.prof.%d.%d",(uintmax_t)rawtime,r );
+  FILE* prof_f2 = fopen(buffer, "w+");
+  if (prof_f2 == NULL)
+  {
+      printf("Error opening prof_f2 file!\n");
+      exit(1);
+  }
+
+
+  char* firesim_objectid_printer = firesim_profile_objectid_buffer_start2;
+  for (int i=0; i<FIRESIM_BUF_SIZE; i++)
+  {
+    if (firesim_profile_buffer_start2[i] == 0) break;
+    fprintf(prof_f2, "%016lld,",firesim_profile_buffer_start2[i]);
+    for (int j=0; j<20; j++)
+    {
+      fprintf(prof_f2,"%02x", *firesim_objectid_printer);
+      firesim_objectid_printer++;
+    }
+    fprintf(prof_f2,"\n");
+  }
+  fclose(prof_f2);
+  free(firesim_profile_buffer_start2);
+  free(firesim_profile_objectid_buffer_start2);
+
+  //==========================================================
+  //=============================================
+
+  if (signal == SIGTERM) {
+    exit(0);
+  }
+
+  if (signal == SIGKILL) {
+    exit(0);
+  }
+
+  if (signal == SIGINT) {
+    exit(0);
+  }
+
+
+}
+
+
+
+
+
 
 /* This function must be present on each Redis module. It is used in order to
  * register the commands into the Redis server. */
@@ -1152,6 +1281,20 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx,
                        int argc) {
   REDISMODULE_NOT_USED(argv);
   REDISMODULE_NOT_USED(argc);
+
+  firesim_profile_buffer_start1 = (uint64_t*)calloc(FIRESIM_BUF_SIZE,sizeof(uint64_t));
+  firesim_profile_buffer1 = firesim_profile_buffer_start1;
+  firesim_profile_buffer_start2 = (uint64_t*)calloc(FIRESIM_BUF_SIZE,sizeof(uint64_t));
+  firesim_profile_buffer2 = firesim_profile_buffer_start2;
+  firesim_profile_taskid_buffer_start1 = (char*)calloc(FIRESIM_BUF_SIZE,20*sizeof(char));
+  firesim_profile_taskid_buffer1 = firesim_profile_taskid_buffer_start1;
+  firesim_profile_objectid_buffer_start2 = (char*)calloc(FIRESIM_BUF_SIZE,20*sizeof(char));
+  firesim_profile_objectid_buffer2 = firesim_profile_objectid_buffer_start2;
+
+  signal(SIGTERM, signal_handler);
+  signal(SIGINT, signal_handler);
+  signal(SIGKILL, signal_handler);
+
 
   if (RedisModule_Init(ctx, "ray", 1, REDISMODULE_APIVER_1) ==
       REDISMODULE_ERR) {
