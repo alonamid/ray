@@ -6,9 +6,9 @@ import os
 import sys
 # Add the directory containing pyarrow to the Python path so that we find the
 # pyarrow version packaged with ray and not a pre-existing pyarrow.
-pyarrow_path = os.path.join(os.path.abspath(os.path.dirname(__file__)),
-                            "pyarrow_files")
-sys.path.insert(0, pyarrow_path)
+#pyarrow_path = os.path.join(os.path.abspath(os.path.dirname(__file__)),
+#                            "pyarrow_files")
+#sys.path.insert(0, pyarrow_path)
 
 # See https://github.com/ray-project/ray/issues/131.
 helpful_message = """

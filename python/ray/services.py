@@ -1108,7 +1108,7 @@ def start_ray_head(address_info=None,
                    num_gpus=None,
                    num_custom_resource=None,
                    num_redis_shards=None,
-                   include_webui=True,
+                   include_webui=False,
                    plasma_directory=None,
                    huge_pages=False):
     """Start Ray in local mode.

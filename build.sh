@@ -17,7 +17,8 @@ echo "Using Python executable $PYTHON_EXECUTABLE."
 # Determine how many parallel jobs to use for make based on the number of cores
 unamestr="$(uname)"
 if [[ "$unamestr" == "Linux" ]]; then
-  PARALLEL=$(nproc)
+  #PARALLEL=$(nproc)
+  PARALLEL=8
 elif [[ "$unamestr" == "Darwin" ]]; then
   PARALLEL=$(sysctl -n hw.ncpu)
 else
@@ -25,19 +26,20 @@ else
   exit 1
 fi
 
-pushd "$ROOT_DIR/src/common/thirdparty/"
-  bash build-redis.sh
-popd
+#pushd "$ROOT_DIR/src/common/thirdparty/"
+#  bash build-redis.sh
+#popd
 
-bash "$ROOT_DIR/src/thirdparty/download_thirdparty.sh"
-bash "$ROOT_DIR/src/thirdparty/build_thirdparty.sh" $PYTHON_EXECUTABLE
+#bash "$ROOT_DIR/src/thirdparty/download_thirdparty.sh"
+#bash "$ROOT_DIR/src/thirdparty/build_thirdparty.sh" $PYTHON_EXECUTABLE
 
 # Now build everything.
 pushd "$ROOT_DIR/python/ray/core"
   # We use these variables to set PKG_CONFIG_PATH, which is important so that
   # in cmake, pkg-config can find plasma.
   TP_DIR=$ROOT_DIR/src/thirdparty
-  ARROW_HOME=$TP_DIR/arrow/cpp/build/cpp-install
+  #ARROW_HOME=$TP_DIR/arrow/cpp/build/cpp-install
+  ARROW_HOME=/usr/
   if [[ "$VALGRIND" = "1" ]]; then
     BOOST_ROOT=$TP_DIR/boost \
     PKG_CONFIG_PATH=$ARROW_HOME/lib/pkgconfig \
